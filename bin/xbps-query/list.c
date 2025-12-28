@@ -81,9 +81,9 @@ list_pkgs_in_dict(struct xbps_handle *xhp UNUSED,
 		short_desc);
 	/* add ellipsis if the line was truncated */
 	if (len >= lpc->maxcols && lpc->maxcols > 4) {
-		for (unsigned int j = 0; j < 3; j++)
-			lpc->linebuf[lpc->maxcols-j-1] = '.';
-		lpc->linebuf[lpc->maxcols] = '\0';
+		lpc->linebuf[lpc->maxcols - 4] = '.';
+		lpc->linebuf[lpc->maxcols - 3] = '.';
+		lpc->linebuf[lpc->maxcols - 2] = '.';
 	}
 	puts(lpc->linebuf);
 
@@ -188,6 +188,8 @@ repo_list_uri(struct xbps_repo *repo)
 	printf("%5zd %s",
 	    repo->idx ? (ssize_t)xbps_dictionary_count(repo->idx) : -1,
 	    repo->uri);
+	if (repo->stage && xbps_dictionary_count(repo->stage) > 0)
+		printf(" (Staged)");
 	printf(" (RSA %s)\n", repo->is_signed ? "signed" : "unsigned");
 	if (repo->xhp->flags & XBPS_FLAG_VERBOSE) {
 		xbps_data_t pubkey;

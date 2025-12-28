@@ -29,7 +29,6 @@
 #include <string.h>
 #include <strings.h>
 #include <errno.h>
-#include <signal.h>
 #include <assert.h>
 #include <unistd.h>
 #include <getopt.h>
@@ -93,12 +92,6 @@ state_cb_rm(const struct xbps_state_cb_data *xscd, void *cbdata UNUSED)
 			    xscd->xhp->rootdir);
 		}
 		break;
-	case XBPS_STATE_SHOW_REMOVE_MSG:
-                printf("%s: pre-remove message:\n", xscd->arg);
-		printf("========================================================================\n");
-		printf("%s", xscd->desc);
-		printf("========================================================================\n");
-		break;
 	/* errors */
 	case XBPS_STATE_REMOVE_FAIL:
 		xbps_error_printf("%s\n", xscd->desc);
@@ -109,8 +102,15 @@ state_cb_rm(const struct xbps_state_cb_data *xscd, void *cbdata UNUSED)
 	case XBPS_STATE_REMOVE_FILE_FAIL:
 	case XBPS_STATE_REMOVE_FILE_HASH_FAIL:
 	case XBPS_STATE_REMOVE_FILE_OBSOLETE_FAIL:
-		/* Ignore errors due to not empty directories or directories being a mount point */
-		if (xscd->err == ENOTEMPTY || xscd->err == EBUSY)
+		/* Ignore errors due to:
+		 * - ENOTEMPTY: non-empty directories.
+		 * - EBUSY: directories being a mount point.
+		 * - ENOENT: files not existing.
+		 * XXX: could EBUSY also appear for files which
+		 * are not mount points and what should happen if this
+		 * is the case.
+		 */
+		if (xscd->err == ENOTEMPTY || xscd->err == EBUSY || xscd->err == ENOENT)
 			return 0;
 
 		xbps_error_printf("%s\n", xscd->desc);
@@ -267,13 +267,17 @@ main(int argc, char **argv)
 
 	if (clean_cache > 0) {
 		rv = clean_cachedir(&xh, clean_cache > 1, drun);
-		if (!orphans || rv)
-			exit(rv);;
+		if (rv) {
+			xbps_end(&xh);
+			exit(EXIT_FAILURE);
+		}
+		if (!orphans)
+			exit(EXIT_SUCCESS);
 	}
 
-	if (!drun && (rv = xbps_pkgdb_lock(&xh)) != 0) {
-		xbps_error_printf("failed to lock pkgdb: %s\n", strerror(rv));
-		exit(rv);
+	if (!drun && xbps_pkgdb_lock(&xh) < 0) {
+		xbps_end(&xh);
+		exit(EXIT_FAILURE);
 	}
 
 	if (orphans) {

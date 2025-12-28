@@ -123,7 +123,7 @@ internalize_binpkg(struct xbps_handle *xhp, xbps_dictionary_t pkg_repod)
 		goto out;
 	}
 	if (archive_read_open_fd(ar, pkg_fd, st.st_blksize) == ARCHIVE_FATAL) {
-		rv = archive_errno(ar);
+		rv = xbps_archive_errno(ar);
 		xbps_set_cb_state(xhp, XBPS_STATE_FILES_FAIL,
 		    -rv, pkgver,
 		    "%s: failed to read binary package `%s': %s",
@@ -212,9 +212,14 @@ xbps_transaction_internalize(struct xbps_handle *xhp, xbps_object_iterator_t ite
 		int rv;
 
 		ttype = xbps_transaction_pkg_type(obj);
-		if (ttype != XBPS_TRANS_INSTALL && ttype != XBPS_TRANS_UPDATE)
+		switch (ttype) {
+		case XBPS_TRANS_INSTALL:
+		case XBPS_TRANS_UPDATE:
+		case XBPS_TRANS_REINSTALL:
+			break;
+		default:
 			continue;
-
+		}
 		rv = internalize_binpkg(xhp, obj);
 		if (rv < 0)
 			return rv;

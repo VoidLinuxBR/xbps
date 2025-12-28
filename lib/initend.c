@@ -53,6 +53,9 @@ xbps_init(struct xbps_handle *xhp)
 	if (xhp->flags & XBPS_FLAG_DEBUG)
 		xbps_debug_level = 1;
 
+	if (xhp->flags & XBPS_FLAG_VERBOSE)
+		xbps_verbose_level = 1;
+
 	xbps_dbg_printf("%s\n", XBPS_RELVER);
 
 	/* Set rootdir */
@@ -162,6 +165,14 @@ xbps_init(struct xbps_handle *xhp)
 			xhp->flags &= ~XBPS_FLAG_DISABLE_SYSLOG;
 		else if (strcasecmp(p, "false") == 0)
 			xhp->flags |= XBPS_FLAG_DISABLE_SYSLOG;
+	}
+
+	p = getenv("XBPS_STAGING");
+	if (p) {
+		if (strcasecmp(p, "true") == 0)
+			xhp->flags &= ~XBPS_FLAG_USE_STAGE;
+		else if (strcasecmp(p, "false") == 0)
+			xhp->flags |= XBPS_FLAG_USE_STAGE;
 	}
 
 	if (xhp->flags & XBPS_FLAG_DEBUG) {

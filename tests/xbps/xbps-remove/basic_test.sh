@@ -55,31 +55,25 @@ clean_cache_head() {
 clean_cache_body() {
 	mkdir -p repo pkg_A/B/C pkg_B
 	touch pkg_A/
+
 	cd repo
-	xbps-create -A noarch -n A-1.0_1 -s "A pkg" ../pkg_A
-	atf_check_equal $? 0
-	xbps-create -A noarch -n A-1.0_2 -s "A pkg" ../pkg_A
-	atf_check_equal $? 0
-	xbps-create -A noarch -n B-1.0_1 -s "B pkg" ../pkg_B
-	atf_check_equal $? 0
-	xbps-rindex -d -a $PWD/*.xbps
-	atf_check_equal $? 0
+	atf_check -o ignore -- xbps-create -A noarch -n A-1.0_1 -s "A pkg" ../pkg_A
+	atf_check -o ignore -- xbps-create -A noarch -n A-1.0_2 -s "A pkg" ../pkg_A
+	atf_check -o ignore -- xbps-create -A noarch -n B-1.0_1 -s "B pkg" ../pkg_B
+	atf_check -o ignore -- xbps-rindex -a $PWD/*.xbps
 	cd ..
+
 	mkdir -p root/etc/xbps.d root/var/db/xbps/https___localhost_ root/var/cache/xbps
-	cp repo/*-repodata root/var/db/xbps/https___localhost_
-	atf_check_equal $? 0
-	cp repo/*.xbps root/var/cache/xbps
-	atf_check_equal $? 0
+	atf_check -- cp repo/*-repodata root/var/db/xbps/https___localhost_
+	atf_check -- cp repo/*.xbps root/var/cache/xbps
 	echo "repository=https://localhost/" >root/etc/xbps.d/localrepo.conf
-	xbps-install -r root -C etc/xbps.d -R repo -dvy B
-	xbps-remove -r root -C etc/xbps.d -dvO
-	atf_check_equal $? 0
-	test -f root/var/cache/xbps/A-1.0_2.noarch.xbps
-	atf_check_equal $? 0
-	test -f root/var/cache/xbps/A-1.0_1.noarch.xbps
-	atf_check_equal $? 1
-	test -f root/var/cache/xbps/B-1.0_1.noarch.xbps
-	atf_check_equal $? 0
+
+	atf_check -o ignore -- xbps-install -r root -C etc/xbps.d -R repo -y B
+	atf_check -o inline:"Removed A-1.0_1.noarch.xbps from cachedir (obsolete)\n" \
+		-- xbps-remove -r root -C etc/xbps.d -O
+	atf_check -- test -f root/var/cache/xbps/A-1.0_2.noarch.xbps
+	atf_check -s exit:1 -- test -f root/var/cache/xbps/A-1.0_1.noarch.xbps
+	atf_check -- test -f root/var/cache/xbps/B-1.0_1.noarch.xbps
 }
 
 atf_test_case clean_cache_dry_run
@@ -176,6 +170,34 @@ clean_cache_uninstalled_body() {
 	atf_check_equal $? 0
 }
 
+atf_test_case remove_msg
+
+remove_msg_head() {
+	atf_set "descr" "xbps-rmeove(1): show remove message"
+}
+
+remove_msg_body() {
+	mkdir -p some_repo pkg_A
+
+	cat <<-EOF >pkg_A/REMOVE.msg
+	foobar-remove-msg
+	EOF
+	cd some_repo
+	xbps-create -A noarch -n A-1.0_1 -s "A pkg" ../pkg_A
+	atf_check_equal $? 0
+	xbps-rindex -d -a $PWD/*.xbps
+	atf_check_equal $? 0
+	cd ..
+
+	xbps-install -r root -C empty.conf -R some_repo -dvy A
+	atf_check_equal $? 0
+
+	atf_check -s exit:0 \
+		-o 'match:foobar-remove-msg' \
+		-e ignore \
+		-- xbps-remove -r root -C empty.conf -y A
+}
+
 atf_init_test_cases() {
 	atf_add_test_case remove_directory
 	atf_add_test_case remove_orphans
@@ -183,4 +205,5 @@ atf_init_test_cases() {
 	atf_add_test_case clean_cache_dry_run
 	atf_add_test_case clean_cache_dry_run_perm
 	atf_add_test_case clean_cache_uninstalled
+	atf_add_test_case remove_msg
 }

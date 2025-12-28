@@ -1110,22 +1110,6 @@ main(int argc, char **argv)
 
 	process_destdir(mutable_files);
 
-	/* Auto-detect INSTALL script */
-/*  if (access("./INSTALL", R_OK) == 0)
-    xbps_dictionary_set_bool(pkg_propsd, "install-script", true);
-*/
-
-  /* Auto-detect INSTALL script */
-  {
-    char ipath[PATH_MAX];
-
-    snprintf(ipath, sizeof(ipath),
-      "./var/lib/xbps/scripts/%s/INSTALL", pkgver);
-
-    if (access(ipath, R_OK) == 0)
-      xbps_dictionary_set_bool(pkg_propsd, "install-script", true);
-  }
-
 	/* Back to original cwd after file tree walk processing */
 	if (chdir(p) == -1)
 		die("chdir: %s", p);

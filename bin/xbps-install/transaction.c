@@ -47,31 +47,88 @@ print_array(xbps_array_t a)
 	}
 }
 
-static void
-show_actions(xbps_object_iterator_t iter)
+static int
+show_transaction_messages(struct transaction *trans)
 {
 	xbps_object_t obj;
-	const char *repoloc, *trans, *pkgver, *arch;
-	uint64_t isize, dsize;
 
-	while ((obj = xbps_object_iterator_next(iter)) != NULL) {
-		repoloc = trans = pkgver = arch = NULL;
-		isize = dsize = 0;
+	while ((obj = xbps_object_iterator_next(trans->iter))) {
+		const char *pkgname = NULL;
+		xbps_trans_type_t ttype;
+		const char *key = NULL;
+		xbps_data_t msg, msg_pkgdb;
+		xbps_dictionary_t pkgdb_pkg = NULL;
+		const void *msgptr = NULL;
+		size_t msgsz = 0;
+
+		ttype = xbps_transaction_pkg_type(obj);
+		switch (ttype) {
+		case XBPS_TRANS_REMOVE:
+			key = "remove-msg";
+			break;
+		case XBPS_TRANS_UPDATE:
+			if (xbps_dictionary_get_cstring_nocopy(obj, "pkgname", &pkgname)) {
+				/* ignore impossible errors and just show the message. */
+				pkgdb_pkg = xbps_pkgdb_get_pkg(trans->xhp, pkgname);
+			}
+			/* fallthrough */
+		case XBPS_TRANS_INSTALL:
+			key = "install-msg";
+			break;
+		default:
+			continue;
+		}
+
+		/* Get the message for the package in the transaction */
+		msg = xbps_dictionary_get(obj, key);
+		if (!msg)
+			continue;
+
+		msgsz = xbps_data_size(msg);
+		if (!msgsz) {
+			/* this shouldn't happen, but just ignore it */
+			continue;
+		}
+
+		/* Get the old message if package exists. */
+		if (pkgdb_pkg) {
+			msg_pkgdb = xbps_dictionary_get(pkgdb_pkg, key);
+			if (xbps_data_equals(msg, msg_pkgdb))
+				continue;
+		}
+
+		msgptr = xbps_data_data_nocopy(msg);
+		if (!msgptr)
+			return EINVAL;
+
+		if (!xbps_dictionary_get_cstring_nocopy(obj, "pkgname", &pkgname))
+			pkgname = "?";
+
+		printf("[*] %s %s message:\n", pkgname, ttype2str(obj));
+		fwrite(msgptr, 1, msgsz, stdout);
+		printf("\n\n");
+
+	}
+	xbps_object_iterator_reset(trans->iter);
+	return 0;
+}
+
+static void
+show_dry_run_actions(struct transaction *trans)
+{
+	xbps_object_t obj;
+
+	while ((obj = xbps_object_iterator_next(trans->iter)) != NULL) {
+		const char *repoloc = NULL, *pkgver = NULL, *arch = NULL;
+		uint64_t isize = 0, dsize = 0;
 
 		xbps_dictionary_get_cstring_nocopy(obj, "pkgver", &pkgver);
-		printf("%s %s", pkgver, ttype2str(obj));
 		xbps_dictionary_get_cstring_nocopy(obj, "repository", &repoloc);
 		xbps_dictionary_get_cstring_nocopy(obj, "architecture", &arch);
-		if (repoloc && arch)
-			printf(" %s %s", arch, repoloc);
 		xbps_dictionary_get_uint64(obj, "installed_size", &isize);
 		xbps_dictionary_get_uint64(obj, "filename-size", &dsize);
-		if (isize)
-			printf(" %ju", isize);
-		if (dsize)
-			printf(" %ju", dsize);
 
-		printf("\n");
+		printf("%s %s %s %s %ju %ju\n", pkgver, ttype2str(obj), arch ? arch : "-", repoloc ? repoloc : "-", isize, dsize);
 	}
 }
 
@@ -309,7 +366,7 @@ update_pkg(struct xbps_handle *xhp, const char *pkg, bool force)
 
 	rv = xbps_transaction_update_pkg(xhp, pkg, force);
 	if (rv == EEXIST)
-		printf("Package '%s' is up to date.\n", pkg);
+		fprintf(stderr, "Package '%s' is up to date.\n", pkg);
 	else if (rv == ENOENT)
 		xbps_error_printf("Package '%s' not found in repository pool.\n", pkg);
 	else if (rv == ENODEV)
@@ -384,8 +441,8 @@ exec_transaction(struct xbps_handle *xhp, unsigned int maxcols, bool yes, bool d
 				goto proceed;
 			}
 		} else {
-			xbps_dbg_printf("Empty transaction dictionary: %s\n",
-			    strerror(errno));
+			xbps_error_printf("Unexpected error: %s (%d)\n",
+			    strerror(rv), rv);
 		}
 		goto out;
 	}
@@ -405,7 +462,7 @@ proceed:
 	 * dry-run mode, show what would be done but don't run anything.
 	 */
 	if (drun) {
-		show_actions(trans->iter);
+		show_dry_run_actions(trans);
 		goto out;
 	}
 	/*
@@ -418,6 +475,9 @@ proceed:
 	 * Show download/installed size for the transaction.
 	 */
 	if ((rv = show_transaction_sizes(trans, maxcols)) != 0)
+		goto out;
+
+	if ((rv = show_transaction_messages(trans)) != 0)
 		goto out;
 
 	fflush(stdout);

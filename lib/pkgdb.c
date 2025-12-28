@@ -23,6 +23,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <sys/file.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 
@@ -35,6 +36,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "xbps.h"
 #include "xbps_api_impl.h"
 
 /**
@@ -60,84 +62,76 @@
  * data type is specified on its edge, i.e array, bool, integer, string,
  * dictionary.
  */
-static int pkgdb_fd = -1;
-static bool pkgdb_map_names_done = false;
 
 int
 xbps_pkgdb_lock(struct xbps_handle *xhp)
 {
+	char path[PATH_MAX];
 	mode_t prev_umask;
-	int rv = 0;
-	/*
-	 * Use a mandatory file lock to only allow one writer to pkgdb,
-	 * other writers will block.
-	 */
+	int r = 0;
+
+	if (access(xhp->rootdir, W_OK) == -1 && errno != ENOENT) {
+		return xbps_error_errno(errno,
+		    "failed to check whether the root directory is writable: "
+		    "%s: %s\n",
+		    xhp->rootdir, strerror(errno));
+	}
+
+	if (xbps_path_join(path, sizeof(path), xhp->metadir, "lock", (char *)NULL) == -1) {
+		return xbps_error_errno(errno,
+		    "failed to create lockfile path: %s\n", strerror(errno));
+	}
+
 	prev_umask = umask(022);
-	xhp->pkgdb_plist = xbps_xasprintf("%s/%s", xhp->metadir, XBPS_PKGDB);
-	if (xbps_pkgdb_init(xhp) == ENOENT) {
-		/* if metadir does not exist, create it */
-		if (access(xhp->metadir, R_OK|X_OK) == -1) {
-			if (errno != ENOENT) {
-				rv = errno;
-				goto ret;
-			}
-			if (xbps_mkpath(xhp->metadir, 0755) == -1) {
-				rv = errno;
-				xbps_dbg_printf("[pkgdb] failed to create metadir "
-				    "%s: %s\n", xhp->metadir, strerror(rv));
-				goto ret;
-			}
+
+	/* if metadir does not exist, create it */
+	if (access(xhp->metadir, R_OK|X_OK) == -1) {
+		if (errno != ENOENT) {
+			umask(prev_umask);
+			return xbps_error_errno(errno,
+			    "failed to check access to metadir: %s: %s\n",
+			    xhp->metadir, strerror(-r));
 		}
-		/* if pkgdb is unexistent, create it with an empty dictionary */
-		xhp->pkgdb = xbps_dictionary_create();
-		if (!xbps_dictionary_externalize_to_file(xhp->pkgdb, xhp->pkgdb_plist)) {
-			rv = errno;
-			xbps_dbg_printf("[pkgdb] failed to create pkgdb "
-			    "%s: %s\n", xhp->pkgdb_plist, strerror(rv));
-			goto ret;
+		if (xbps_mkpath(xhp->metadir, 0755) == -1 && errno != EEXIST) {
+			umask(prev_umask);
+			return xbps_error_errno(errno,
+			    "failed to create metadir: %s: %s\n",
+			    xhp->metadir, strerror(errno));
 		}
 	}
 
-	if ((pkgdb_fd = open(xhp->pkgdb_plist, O_CREAT|O_RDWR|O_CLOEXEC, 0664)) == -1) {
-		rv = errno;
-		xbps_dbg_printf("[pkgdb] cannot open pkgdb for locking "
-		    "%s: %s\n", xhp->pkgdb_plist, strerror(rv));
-		free(xhp->pkgdb_plist);
-		goto ret;
+	xhp->lock_fd = open(path, O_CREAT|O_WRONLY|O_CLOEXEC, 0664);
+	if (xhp->lock_fd  == -1) {
+		return xbps_error_errno(errno,
+		    "failed to create lock file: %s: %s\n", path,
+		    strerror(errno));
 	}
-
-	/*
-	 * If we've acquired the file lock, then pkgdb is writable.
-	 */
-	if (lockf(pkgdb_fd, F_TLOCK, 0) == -1) {
-		rv = errno;
-		xbps_dbg_printf("[pkgdb] cannot lock pkgdb: %s\n", strerror(rv));
-	}
-	/*
-	 * Check if rootdir is writable.
-	 */
-	if (access(xhp->rootdir, W_OK) == -1) {
-		rv = errno;
-		xbps_dbg_printf("[pkgdb] rootdir %s: %s\n", xhp->rootdir, strerror(rv));
-	}
-
-ret:
 	umask(prev_umask);
-	return rv;
+
+	if (flock(xhp->lock_fd, LOCK_EX|LOCK_NB) == -1) {
+		if (errno != EWOULDBLOCK)
+			goto err;
+		xbps_warn_printf("package database locked, waiting...\n");
+	}
+
+	if (flock(xhp->lock_fd, LOCK_EX) == -1) {
+err:
+		close(xhp->lock_fd);
+		xhp->lock_fd = -1;
+		return xbps_error_errno(errno, "failed to lock file: %s: %s\n",
+		    path, strerror(errno));
+	}
+
+	return 0;
 }
 
 void
-xbps_pkgdb_unlock(struct xbps_handle *xhp UNUSED)
+xbps_pkgdb_unlock(struct xbps_handle *xhp)
 {
-	xbps_dbg_printf("%s: pkgdb_fd %d\n", __func__, pkgdb_fd);
-
-	if (pkgdb_fd != -1) {
-		if (lockf(pkgdb_fd, F_ULOCK, 0) == -1)
-			xbps_dbg_printf("[pkgdb] failed to unlock pkgdb: %s\n", strerror(errno));
-
-		(void)close(pkgdb_fd);
-		pkgdb_fd = -1;
-	}
+	if (xhp->lock_fd == -1)
+		return;
+	close(xhp->lock_fd);
+	xhp->lock_fd = -1;
 }
 
 static int
@@ -145,26 +139,35 @@ pkgdb_map_vpkgs(struct xbps_handle *xhp)
 {
 	xbps_object_iterator_t iter;
 	xbps_object_t obj;
-	int rv = 0;
+	int r = 0;
 
 	if (!xbps_dictionary_count(xhp->pkgdb))
 		return 0;
 
 	if (xhp->vpkgd == NULL) {
 		xhp->vpkgd = xbps_dictionary_create();
-		assert(xhp->vpkgd);
+		if (!xhp->vpkgd) {
+			r = -errno;
+			xbps_error_printf("failed to create dictionary\n");
+			return r;
+		}
 	}
+
 	/*
 	 * This maps all pkgs that have virtualpkgs in pkgdb.
 	 */
 	iter = xbps_dictionary_iterator(xhp->pkgdb);
-	assert(iter);
+	if (!iter) {
+		r = -errno;
+		xbps_error_printf("failed to create iterator");
+		return r;
+	}
 
 	while ((obj = xbps_object_iterator_next(iter))) {
 		xbps_array_t provides;
 		xbps_dictionary_t pkgd;
 		const char *pkgver = NULL;
-		char pkgname[XBPS_NAME_SIZE] = {0};
+		const char *pkgname = NULL;
 		unsigned int cnt;
 
 		pkgd = xbps_dictionary_get_keysym(xhp->pkgdb, obj);
@@ -174,26 +177,53 @@ pkgdb_map_vpkgs(struct xbps_handle *xhp)
 			continue;
 
 		xbps_dictionary_get_cstring_nocopy(pkgd, "pkgver", &pkgver);
-		if (!xbps_pkg_name(pkgname, sizeof(pkgname), pkgver)) {
-			rv = EINVAL;
-			goto out;
-		}
+		xbps_dictionary_get_cstring_nocopy(pkgd, "pkgname", &pkgname);
+		assert(pkgname);
+
 		for (unsigned int i = 0; i < cnt; i++) {
+			char vpkgname[XBPS_NAME_SIZE];
 			const char *vpkg = NULL;
+			xbps_dictionary_t providers;
+			bool alloc = false;
 
 			xbps_array_get_cstring_nocopy(provides, i, &vpkg);
-			if (!xbps_dictionary_set_cstring(xhp->vpkgd, vpkg, pkgname)) {
-				xbps_dbg_printf("%s: set_cstring vpkg "
-				    "%s pkgname %s\n", __func__, vpkg, pkgname);
-				rv = EINVAL;
+			if (!xbps_pkg_name(vpkgname, sizeof(vpkgname), vpkg)) {
+				xbps_warn_printf("%s: invalid provides: %s\n", pkgver, vpkg);
+				continue;
+			}
+
+			providers = xbps_dictionary_get(xhp->vpkgd, vpkgname);
+			if (!providers) {
+				providers = xbps_dictionary_create();
+				if (!providers) {
+					r = -errno;
+					xbps_error_printf("failed to create dictionary\n");
+					goto out;
+				}
+				if (!xbps_dictionary_set(xhp->vpkgd, vpkgname, providers)) {
+					r = -errno;
+					xbps_error_printf("failed to set dictionary entry\n");
+					xbps_object_release(providers);
+					goto out;
+				}
+				alloc = true;
+			}
+
+			if (!xbps_dictionary_set_cstring(providers, vpkg, pkgname)) {
+				r = -errno;
+				xbps_error_printf("failed to set dictionary entry\n");
+				if (alloc)
+					xbps_object_release(providers);
 				goto out;
 			}
+			if (alloc)
+				xbps_object_release(providers);
 			xbps_dbg_printf("[pkgdb] added vpkg %s for %s\n", vpkg, pkgname);
 		}
 	}
 out:
 	xbps_object_iterator_release(iter);
-	return rv;
+	return r;
 }
 
 static int
@@ -203,7 +233,7 @@ pkgdb_map_names(struct xbps_handle *xhp)
 	xbps_object_t obj;
 	int rv = 0;
 
-	if (pkgdb_map_names_done || !xbps_dictionary_count(xhp->pkgdb))
+	if (!xbps_dictionary_count(xhp->pkgdb))
 		return 0;
 
 	/*
@@ -232,9 +262,6 @@ pkgdb_map_names(struct xbps_handle *xhp)
 		}
 	}
 	xbps_object_iterator_release(iter);
-	if (!rv) {
-		pkgdb_map_names_done = true;
-	}
 	return rv;
 }
 
@@ -259,9 +286,7 @@ xbps_pkgdb_init(struct xbps_handle *xhp)
 
 	if ((rv = xbps_pkgdb_update(xhp, false, true)) != 0) {
 		if (rv != ENOENT)
-			xbps_dbg_printf("[pkgdb] cannot internalize "
-			    "pkgdb dictionary: %s\n", strerror(rv));
-
+			xbps_error_printf("failed to initialize pkgdb: %s\n", strerror(rv));
 		return rv;
 	}
 	if ((rv = pkgdb_map_names(xhp)) != 0) {
@@ -345,16 +370,17 @@ xbps_pkgdb_foreach_cb(struct xbps_handle *xhp,
 		void *arg)
 {
 	xbps_array_t allkeys;
-	int rv;
+	int r;
 
-	if ((rv = xbps_pkgdb_init(xhp)) != 0)
-		return rv;
+	// XXX: this should be done before calling the function...
+	if ((r = xbps_pkgdb_init(xhp)) != 0)
+		return r > 0 ? -r : r;
 
 	allkeys = xbps_dictionary_all_keys(xhp->pkgdb);
 	assert(allkeys);
-	rv = xbps_array_foreach_cb(xhp, allkeys, xhp->pkgdb, fn, arg);
+	r = xbps_array_foreach_cb(xhp, allkeys, xhp->pkgdb, fn, arg);
 	xbps_object_release(allkeys);
-	return rv;
+	return r;
 }
 
 int
@@ -363,25 +389,33 @@ xbps_pkgdb_foreach_cb_multi(struct xbps_handle *xhp,
 		void *arg)
 {
 	xbps_array_t allkeys;
-	int rv;
+	int r;
 
-	if ((rv = xbps_pkgdb_init(xhp)) != 0)
-		return rv;
+	// XXX: this should be done before calling the function...
+	if ((r = xbps_pkgdb_init(xhp)) != 0)
+		return r > 0 ? -r : r;
 
 	allkeys = xbps_dictionary_all_keys(xhp->pkgdb);
-	assert(allkeys);
-	rv = xbps_array_foreach_cb_multi(xhp, allkeys, xhp->pkgdb, fn, arg);
+	if (!allkeys)
+		return xbps_error_oom();
+
+	r = xbps_array_foreach_cb_multi(xhp, allkeys, xhp->pkgdb, fn, arg);
 	xbps_object_release(allkeys);
-	return rv;
+	return r;
 }
 
 xbps_dictionary_t
 xbps_pkgdb_get_pkg(struct xbps_handle *xhp, const char *pkg)
 {
+	xbps_dictionary_t pkgd;
+
 	if (xbps_pkgdb_init(xhp) != 0)
 		return NULL;
 
-	return xbps_find_pkg_in_dict(xhp->pkgdb, pkg);
+	pkgd = xbps_find_pkg_in_dict(xhp->pkgdb, pkg);
+	if (!pkgd)
+		errno = ENOENT;
+	return pkgd;
 }
 
 xbps_dictionary_t
@@ -398,12 +432,16 @@ generate_full_revdeps_tree(struct xbps_handle *xhp)
 {
 	xbps_object_t obj;
 	xbps_object_iterator_t iter;
+	xbps_dictionary_t vpkg_cache;
 
 	if (xhp->pkgdb_revdeps)
 		return;
 
 	xhp->pkgdb_revdeps = xbps_dictionary_create();
 	assert(xhp->pkgdb_revdeps);
+
+	vpkg_cache = xbps_dictionary_create();
+	assert(vpkg_cache);
 
 	iter = xbps_dictionary_iterator(xhp->pkgdb);
 	assert(iter);
@@ -421,8 +459,8 @@ generate_full_revdeps_tree(struct xbps_handle *xhp)
 		xbps_dictionary_get_cstring_nocopy(pkgd, "pkgver", &pkgver);
 		for (unsigned int i = 0; i < xbps_array_count(rundeps); i++) {
 			xbps_array_t pkg;
-			const char *pkgdep = NULL, *vpkgname = NULL;
-			char *v, curpkgname[XBPS_NAME_SIZE];
+			const char *pkgdep = NULL, *v;
+			char curpkgname[XBPS_NAME_SIZE];
 			bool alloc = false;
 
 			xbps_array_get_cstring_nocopy(rundeps, i, &pkgdep);
@@ -430,11 +468,24 @@ generate_full_revdeps_tree(struct xbps_handle *xhp)
 			    (!xbps_pkg_name(curpkgname, sizeof(curpkgname), pkgdep))) {
 					abort();
 			}
-			vpkgname = vpkg_user_conf(xhp, curpkgname, false);
-			if (vpkgname == NULL) {
-				v = strdup(curpkgname);
-			} else {
-				v = strdup(vpkgname);
+
+			/* TODO: this is kind of a workaround, to avoid calling vpkg_user_conf
+			 * over and over again for the same packages which is slow. A better
+			 * solution for itself vpkg_user_conf being slow should probably be
+			 * implemented at some point.
+			 */
+			if (!xbps_dictionary_get_cstring_nocopy(vpkg_cache, curpkgname, &v)) {
+				const char *vpkgname = vpkg_user_conf(xhp, curpkgname);
+				if (vpkgname) {
+					v = vpkgname;
+				} else {
+					v = curpkgname;
+				}
+				errno = 0;
+				if (!xbps_dictionary_set_cstring_nocopy(vpkg_cache, curpkgname, v)) {
+					xbps_error_printf("%s\n", strerror(errno ? errno : ENOMEM));
+					abort();
+				}
 			}
 
 			pkg = xbps_dictionary_get(xhp->pkgdb_revdeps, v);
@@ -446,12 +497,12 @@ generate_full_revdeps_tree(struct xbps_handle *xhp)
 				xbps_array_add_cstring_nocopy(pkg, pkgver);
 				xbps_dictionary_set(xhp->pkgdb_revdeps, v, pkg);
 			}
-			free(v);
 			if (alloc)
 				xbps_object_release(pkg);
 		}
 	}
 	xbps_object_iterator_release(iter);
+	xbps_object_release(vpkg_cache);
 }
 
 xbps_array_t

@@ -42,24 +42,13 @@ revert_body() {
 	mkdir -p some_repo pkg_A
 	touch pkg_A/file00
 	cd some_repo
-	xbps-create -A noarch -n foo-1.1_1 -s "foo pkg" ../pkg_A
-	atf_check_equal $? 0
-	xbps-rindex -d -a $PWD/*.xbps
-	atf_check_equal $? 0
-	xbps-create -A noarch -n foo-1.0_1 -r "1.1_1" -s "foo pkg" ../pkg_A
-	atf_check_equal $? 0
-	xbps-rindex -d -a $PWD/*.xbps
-	atf_check_equal $? 0
+	atf_check -o ignore -e ignore -- xbps-create -A noarch -n foo-1.1_1 -s "foo pkg" ../pkg_A
+	atf_check -o ignore -e ignore -- xbps-rindex -d -a $PWD/*.xbps
+	atf_check -o ignore -e ignore -- xbps-create -A noarch -n foo-1.0_1 -r "1.1_1" -s "foo pkg" ../pkg_A
+	atf_check -o ignore -e ignore -- xbps-rindex -d -a $PWD/*.xbps
 	cd ..
-	result="$(xbps-query -r root -C empty.conf --repository=some_repo -s '')"
-	expected="[-] foo-1.0_1 foo pkg"
-	rv=0
-	if [ "$result" != "$expected" ]; then
-		echo "result: $result"
-		echo "expected: $expected"
-		rv=1
-	fi
-	atf_check_equal $rv 0
+	atf_check -o "inline:[-] foo-1.0_1 foo pkg\n" -e empty -- \
+		xbps-query -r root -C empty.conf --repository=some_repo -Rs ''
 }
 
 atf_test_case stage
@@ -76,36 +65,36 @@ stage_body() {
 	atf_check_equal $? 0
 	xbps-rindex -d -a $PWD/*.xbps
 	atf_check_equal $? 0
-	[ -f *-stagedata ]
-	atf_check_equal $? 1
+	atf_check -o inline:"    1 $PWD (RSA unsigned)\n" -- \
+		xbps-query -r ../root -i --repository=$PWD -L
 
 	xbps-create -A noarch -n foo-1.1_1 -s "foo pkg" --shlib-provides "libfoo.so.2" ../pkg_A
 	atf_check_equal $? 0
 	xbps-rindex -d -a $PWD/*.xbps
 	atf_check_equal $? 0
-	[ -f *-stagedata ]
-	atf_check_equal $? 1
+	atf_check -o inline:"    1 $PWD (RSA unsigned)\n" -- \
+		xbps-query -r ../root -i --repository=$PWD -L
 
 	xbps-create -A noarch -n bar-1.0_1 -s "foo pkg" --shlib-requires "libfoo.so.2" ../pkg_B
 	atf_check_equal $? 0
 	xbps-rindex -d -a $PWD/*.xbps
 	atf_check_equal $? 0
-	[ -f *-stagedata ]
-	atf_check_equal $? 1
+	atf_check -o inline:"    2 $PWD (RSA unsigned)\n" -- \
+		xbps-query -r ../root -i --repository=$PWD -L
 
 	xbps-create -A noarch -n foo-1.2_1 -s "foo pkg" --shlib-provides "libfoo.so.3" ../pkg_A
 	atf_check_equal $? 0
 	xbps-rindex -d -a $PWD/*.xbps
 	atf_check_equal $? 0
-	[ -f *-stagedata ]
-	atf_check_equal $? 0
+	atf_check -o inline:"    2 $PWD (Staged) (RSA unsigned)\n" -- \
+		xbps-query -r ../root -i --repository=$PWD -L
 
 	xbps-create -A noarch -n bar-1.1_1 -s "foo pkg" --shlib-requires "libfoo.so.3" ../pkg_A
 	atf_check_equal $? 0
 	xbps-rindex -d -a $PWD/*.xbps
 	atf_check_equal $? 0
-	[ -f *-stagedata ]
-	atf_check_equal $? 1
+	atf_check -o inline:"    2 $PWD (RSA unsigned)\n" -- \
+		xbps-query -r ../root -i --repository=$PWD -L
 }
 
 atf_test_case stage_resolve_bug
@@ -136,16 +125,16 @@ stage_resolve_bug_body() {
 	atf_check_equal $? 0
 	xbps-rindex -d -a $PWD/*.xbps
 	atf_check_equal $? 0
-	[ -f *-stagedata ]
-	atf_check_equal $? 1
+	atf_check -o inline:"    4 $PWD (RSA unsigned)\n" -- \
+		xbps-query -r ../root -i --repository=$PWD -L
 
 	# trigger staging
 	xbps-create -A noarch -n provider-1.0_2 -s "foo pkg" --shlib-provides "libfoo.so.1" ../provider
 	atf_check_equal $? 0
 	xbps-rindex -d -a $PWD/*.xbps
 	atf_check_equal $? 0
-	[ -f *-stagedata ]
-	atf_check_equal $? 0
+	atf_check -o inline:"    4 $PWD (Staged) (RSA unsigned)\n" -- \
+		xbps-query -r ../root -i --repository=$PWD -L
 
 	# then add a new provider not containing the provides field. This resulted in
 	# a stage state despites the library is resolved through libprovides
@@ -153,8 +142,8 @@ stage_resolve_bug_body() {
 	atf_check_equal $? 0
 	xbps-rindex -d -a $PWD/*.xbps
 	atf_check_equal $? 0
-	[ -f *-stagedata ]
-	atf_check_equal $? 0
+	atf_check -o inline:"    4 $PWD (Staged) (RSA unsigned)\n" -- \
+		xbps-query -r ../root -i --repository=$PWD -L
 
 	# resolve staging
 	# the actual bug appeared here: libfoo.so.1 is still provided by libprovider, but
@@ -163,8 +152,46 @@ stage_resolve_bug_body() {
 	atf_check_equal $? 0
 	xbps-rindex -d -a $PWD/*.xbps
 	atf_check_equal $? 0
-	[ -f *-stagedata ]
-	atf_check_equal $? 1
+	atf_check -o inline:"    4 $PWD (RSA unsigned)\n" -- \
+		xbps-query -r ../root -i --repository=$PWD -L
+}
+
+atf_test_case stage_stacked
+
+stage_stacked_head() {
+	atf_set "descr" "xbps-rindex(1) -a: staging multiple libraries and clean one to half unstage"
+}
+
+stage_stacked_body() {
+	mkdir -p repo root pkg
+
+	cd repo
+	atf_check -o ignore -- xbps-create -A noarch -n flac-1.4.3_1 -s "flac pkg" --shlib-provides "libFLAC.so.12" ../pkg
+	atf_check -o ignore -- xbps-create -A noarch -n ruby-3.3.8_1 -s "ruby pkg" --shlib-provides "libruby.so.3.3" ../pkg
+	atf_check -o ignore -- xbps-create -A noarch -n A-1.0_1 -s "A pkg" --shlib-requires "libFLAC.so.12" ../pkg
+	atf_check -o ignore -- xbps-create -A noarch -n B-1.0_1 -s "B pkg" --shlib-requires  "libruby.so.3.3" ../pkg
+	atf_check -e ignore -o ignore -- xbps-rindex -va *.xbps
+
+	atf_check -o ignore -- xbps-create -A noarch -n flac-1.5.0_1 -s "flac pkg" --shlib-provides "libFLAC.so.14" ../pkg
+	atf_check -e ignore -o match:"stage: added \`flac-1\.5\.0_1' \(noarch\)" -- xbps-rindex -va flac-1.5.0_1.noarch.xbps
+
+	atf_check -o ignore -- xbps-create -A noarch -n ruby-3.4.5_1 -s "ruby pkg" --shlib-provides "libruby.so.3.4" ../pkg
+	atf_check -e ignore -o match:"stage: added \`ruby-3\.4\.5_1' \(noarch\)" -- xbps-rindex -va ruby-3.4.5_1.noarch.xbps
+
+	# atf_check -o ignore -- xbps-create -A noarch -n A-1.0_2 -s "A pkg" --shlib-requires  "libFLAC.so.14" ../pkg
+	# atf_check -e ignore -o match:"stage: added \`A-1\.0_2' \(noarch\)" -- xbps-rindex -va A-1.0_2.noarch.xbps
+
+	rm A-1.0_1.noarch.xbps
+	atf_check -o match:"index: removed pkg A-1\.0_1" -- xbps-rindex -c .
+
+	atf_check -o match:"\(Staged\)" -- xbps-query -r root --repository=. -L
+
+	atf_check -o ignore -- xbps-create -A noarch -n C-1.0_1 -s "C pkg" --shlib-requires  "libFLAC.so.14" ../pkg
+	atf_check -o match:"stage: added \`C-1\.0_1' \(noarch\)" -- xbps-rindex -va C-1.0_1.noarch.xbps
+
+	atf_check -o ignore -- xbps-create -A noarch -n B-1.0_2 -s "B pkg" --shlib-requires  "libruby.so.3.4" ../pkg
+	atf_check -o match:"index: added \`B-1\.0_2' \(noarch\)" -- xbps-rindex -va B-1.0_2.noarch.xbps
+
 }
 
 atf_init_test_cases() {
@@ -172,4 +199,5 @@ atf_init_test_cases() {
 	atf_add_test_case revert
 	atf_add_test_case stage
 	atf_add_test_case stage_resolve_bug
+	atf_add_test_case stage_stacked
 }

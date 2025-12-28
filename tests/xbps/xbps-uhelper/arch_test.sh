@@ -8,7 +8,8 @@ native_head() {
 }
 
 native_body() {
-	atf_check_equal $(xbps-uhelper -r $PWD arch) $(uname -m)
+	unset XBPS_ARCH XBPS_TARGET_ARCH
+	atf_check -o "inline:$(uname -m)\n" -- xbps-uhelper -r "$PWD" arch
 }
 
 atf_test_case env
@@ -27,9 +28,10 @@ conf_head() {
 	atf_set "descr" "xbps-uhelper arch: configuration override test"
 }
 conf_body() {
-	mkdir -p xbps.d
-	echo "architecture=x86_64-musl" > xbps.d/arch.conf
-	atf_check_equal $(xbps-uhelper -C $PWD/xbps.d arch) x86_64-musl
+	mkdir -p xbps.d root
+	unset XBPS_ARCH XBPS_TARGET_ARCH
+	echo "architecture=foo" > xbps.d/arch.conf
+	atf_check -o inline:"foo\n" -- xbps-uhelper -C $PWD/xbps.d -r root arch
 }
 
 atf_init_test_cases() {

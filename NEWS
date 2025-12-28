@@ -1,8 +1,48 @@
-xbps-X.XX.X (2020-XX-XX):
+xbps-0.60.6 (2025-11-16):
+
+* libxbps: improved error messages for package checksum mismatch and package
+  database locking errors. [duncaen]
+
+* libxbps: packages in unpack state that will be configured in
+  transaction are no longer required to be found in the repo pool. [duncaen]
+
+* xbps-query(1): fixed memory leaks and refactor --search. [duncaen]
+
+* xbps-query(1): fixed off-by-one error in --search ellipsis. [achequisde]
+
+xbps-0.60.5 (2025-08-02):
+
+* fixed typos in error messages and usage
+
+* xbps-uchroot(1): add /dev/pts mount separate from the host
+
+* print a warning message if the package database is locked and
+  xbps is waiting for the lock to be released.
+
+xbps-0.60.4 (2025-07-24):
+
+* reduce allocations and fix memory leaks
+
+* xbps-rindex fix bug where staging package would end up in the index if -c
+  is used on a staged repository.
+
+* fix error handling for --memory-sync and other remote metadata.
+
+* fix xbps-query --staging flag
+
+xbps-0.60.3 (2025-06-17):
+
+* fix invalid free when config lines start with spaces
+
+xbps-0.60.2 (2025-06-15):
+
+* fix xbps-rindex --remove-obsolete
+
+xbps-0.60 (2025-06-14):
 
  * libxbps: fix issues with updating packages in unpacked state. [duncaen]
 
- * libxbps: run all scripts before and after unpackage all packages,
+ * libxbps: run all scripts before and after unpacking all packages,
    to avoid running things in a half unpacked state. [duncaen]
 
  * libxbps: fix configuration parsing with missing trailing newline
@@ -26,21 +66,21 @@ xbps-X.XX.X (2020-XX-XX):
    breaks the installation or update of a package instead of just ignoring
    it, resulting in an inconsistent pkgdb. #392 [duncaen]
 
- * libxbps: fix issues with XBPS_FLAG_INSTALL_AUTO where already intalled
-   packages would get market automatically installed when they are being
-   updated while installing new packackages in automatically installed mode.
+ * libxbps: fix issues with XBPS_FLAG_INSTALL_AUTO where already installed
+   packages would get marked automatically installed when they are being
+   updated while installing new packages in automatically installed mode.
    #557 [duncaen]
 
- * libxbps: when reinstalling a package don't remove directories that are still
+ * libxbps: when reinstalling a package, don't remove directories that are still
    part of the new package. This avoids the recreation of directories which
-   trips up runsv as it keeps an fd to the service directory open that would
+   trips up runsv, as it keeps an fd to the service directory open that would
    be deleted and recreated. #561 [duncaen]
 
  * xbps-install(1): list reinstalled packages. [chocimier]
 
- * xbps-install(1): in dry-run mode ignore out of space error. [chocimier]
+ * xbps-install(1): in dry-run mode, ignore out of space error. [chocimier]
 
- * xbps-install(1): fix bug where a repo locked dependency could be updated
+ * xbps-install(1): fix bug where a repo-locked dependency could be updated
    from a repository it was not locked to. [chocimier]
 
  * xbps-fetch(1): make sure to exit with failure if a failure was encountered.
@@ -53,11 +93,11 @@ xbps-X.XX.X (2020-XX-XX):
 
  * xbps-checkvers(1): with --installed also list subpackages. [chocimier]
 
- * xbps-remove(1): fix dry run cache cleaning inconsistencies. [duncaen]
+ * xbps-remove(1): fix dry-run cache cleaning inconsistencies. [duncaen]
 
- * xbps-remove(1): allow to remove "uninstalled" (packages in the cache that
-   are still up to date but no long installed) packages from the package
-   cache by specifing the -O/--clean-cache flag twice. #530 [duncaen]
+ * xbps-remove(1): allow removing "uninstalled" packages (packages in the cache
+   that are still up to date but no long installed) from the package
+   cache by specifying the -O/--clean-cache flag twice. #530 [duncaen]
 
  * xbps-query(1): --cat now works in either repo or pkgdb mode. [duncaen]
 
@@ -69,6 +109,48 @@ xbps-X.XX.X (2020-XX-XX):
  * libxbps, xbps-install(1), xbps-remove(1), xbps-reconfigure(1),
    xbps-alternatives(1): add `XBPS_SYSLOG` environment variable to overwrite
    syslog configuration option. [duncaen]
+
+ * libxbps: Resolve performance issue caused by the growing number of virtual packages
+   in the Void Linux repository. #625 [duncaen]
+
+ * libxbps: Merge the staging data into the repository index (repodata) file.
+   This allows downloading the staging index from remote repositories without
+   having to keep the two index files in sync. #575 [duncaen]
+
+ * xbps-install(1), xbps-query(1), xbps-checkvers(1), xbps.d(5): Added `--staging` flag,
+   `XBPS_STAGING` environment variable and `staging=true|false` configuration option.
+   Enabling staging allows xbps to use staged packages from remote repositories.
+
+ * xbps-install(1), xbps-remove(1): Print package install and removal messages once,
+   below the transaction summary, before applying the transaction. #572 [chocimier]
+
+ * xbps-query(1): Improved argument parsing allows package arguments anywhere in the
+   arguments. #588 [classabbyamp]
+
+ * xbps-install(1): Make dry-run output consistent/machine parsable. #611 [classabbyamp]
+
+ * libxbps: Do not url-escape tilde character in path for better compatibility with
+   some servers. #607 [gmbeard]
+
+ * libxbps: use the proper ASN1 signature type for packages. Signatures now have a `.sig2`
+   extension. #565 [classabbyamp]
+
+ * xbps-uhelper(1): add verbose output for `pkgmatch` and `cmpver` subcommands if the
+   -v/--verbose flag is specified. #549 [classabbyamp]
+
+ * xbps-uhelper(1): support multiple arguments for many subcommands to improve pipelined
+   performance. #536 [classabbyamp]
+
+ * xbps-alternatives(1): Add -R/--repository mode to -l/--list to show alternatives
+   of packages in the repository. #340 [duncaen]
+
+ * libxbps: fix permanent (308) redirects when fetching packages and repositories. [duncaen]
+
+ * xbps-remove(1): ignores file not found errors for files it deletes. [duncaen]
+
+ * libxbps: the `preserve` package metadata is now also respected for package removals. [duncaen]
+
+ * xbps-pkgdb(1): new --checks allows to choose which checks are run. #352 [ericonr,duncaen]
 
 xbps-0.59.1 (2020-04-01):
 

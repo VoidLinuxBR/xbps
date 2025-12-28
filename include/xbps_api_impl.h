@@ -52,6 +52,7 @@
 #define __arraycount(x) (sizeof(x) / sizeof(*x))
 #endif
 
+struct archive;
 struct archive_entry;
 
 /**
@@ -70,7 +71,6 @@ bool HIDDEN xbps_remove_pkg_from_array_by_pattern(xbps_array_t, const char *);
 bool HIDDEN xbps_remove_pkg_from_array_by_pkgver(xbps_array_t, const char *);
 void HIDDEN xbps_fetch_set_cache_connection(int, int);
 void HIDDEN xbps_fetch_unset_cache_connection(void);
-int HIDDEN xbps_cb_message(struct xbps_handle *, xbps_dictionary_t, const char *);
 int HIDDEN xbps_entry_is_a_conf_file(xbps_dictionary_t, const char *);
 int HIDDEN xbps_entry_install_conf_file(struct xbps_handle *, xbps_dictionary_t,
 		xbps_dictionary_t, struct archive_entry *, const char *,
@@ -89,7 +89,7 @@ xbps_dictionary_t HIDDEN xbps_find_virtualpkg_in_array(struct xbps_handle *,
 bool HIDDEN xbps_transaction_check_revdeps(struct xbps_handle *, xbps_array_t);
 bool HIDDEN xbps_transaction_check_shlibs(struct xbps_handle *, xbps_array_t);
 bool HIDDEN xbps_transaction_check_replaces(struct xbps_handle *, xbps_array_t);
-bool HIDDEN xbps_transaction_check_conflicts(struct xbps_handle *, xbps_array_t);
+int HIDDEN xbps_transaction_check_conflicts(struct xbps_handle *, xbps_array_t);
 bool HIDDEN xbps_transaction_store(struct xbps_handle *, xbps_array_t, xbps_dictionary_t, bool);
 int HIDDEN xbps_transaction_init(struct xbps_handle *);
 int HIDDEN xbps_transaction_files(struct xbps_handle *,
@@ -111,10 +111,17 @@ int HIDDEN xbps_set_cb_state(struct xbps_handle *, xbps_state_t, int,
 int HIDDEN xbps_unpack_binary_pkg(struct xbps_handle *, xbps_dictionary_t);
 int HIDDEN xbps_remove_pkg(struct xbps_handle *, const char *, bool);
 int HIDDEN xbps_register_pkg(struct xbps_handle *, xbps_dictionary_t);
+
 char HIDDEN *xbps_archive_get_file(struct archive *, struct archive_entry *);
 xbps_dictionary_t HIDDEN xbps_archive_get_dictionary(struct archive *,
 		struct archive_entry *);
-const char HIDDEN *vpkg_user_conf(struct xbps_handle *, const char *, bool);
+const char HIDDEN *vpkg_user_conf(struct xbps_handle *, const char *);
+
+struct archive HIDDEN *xbps_archive_read_new(void);
+int HIDDEN xbps_archive_read_open(struct archive *ar, const char *path);
+int HIDDEN xbps_archive_read_open_remote(struct archive *ar, const char *url);
+int HIDDEN xbps_archive_errno(struct archive *ar);
+
 xbps_array_t HIDDEN xbps_get_pkg_fulldeptree(struct xbps_handle *,
 		const char *, bool);
 struct xbps_repo HIDDEN *xbps_regget_repo(struct xbps_handle *,

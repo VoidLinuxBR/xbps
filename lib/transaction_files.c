@@ -142,19 +142,25 @@ match_preserved_file(struct xbps_handle *xhp, const char *file)
 }
 
 static bool
-can_delete_directory(const char *file, size_t len, size_t max)
+has_dir_prefix(const char *dir, size_t dirlen, const char *file)
+{
+	return strncmp(file, dir, dirlen) == 0 && file[dirlen] == '/';
+}
+
+static bool
+can_delete_directory(const char *dir, size_t dirlen, size_t max)
 {
 	struct item *item;
 	size_t rmcount = 0, fcount = 0;
 	DIR *dp;
 
-	dp = opendir(file);
+	dp = opendir(dir);
 	if (dp == NULL) {
 		if (errno == ENOENT) {
 			return true;
 		} else {
 			xbps_dbg_printf("[files] %s: %s: %s\n",
-			    __func__, file, strerror(errno));
+			    __func__, dir, strerror(errno));
 			return false;
 		}
 	}
@@ -166,7 +172,7 @@ can_delete_directory(const char *file, size_t len, size_t max)
 	 */
 	for (size_t i = 0; i < max; i++) {
 		item = items[i];
-		if (strncmp(item->file, file, len) == 0) {
+		if (has_dir_prefix(dir, dirlen, item->file)) {
 			if (!item->deleted) {
 				closedir(dp);
 				return false;
@@ -187,7 +193,7 @@ can_delete_directory(const char *file, size_t len, size_t max)
 
 	if (fcount <= rmcount) {
 		xbps_dbg_printf("[files] only removed %zu out of %zu files: %s\n",
-		    rmcount, fcount, file);
+		    rmcount, fcount, dir);
 	}
 	closedir(dp);
 
@@ -247,7 +253,7 @@ collect_obsoletes(struct xbps_handle *xhp)
 			 * new package.
 			 * Probably obsolete.
 			 */
-			if (item->old.preserve && item->old.update) {
+			if (item->old.preserve) {
 				xbps_dbg_printf("[files] %s: skipping `preserve` %s: %s\n",
 				    item->old.pkgver, typestr(item->old.type), item->file);
 				continue;
@@ -713,7 +719,7 @@ collect_binpkg_files(struct xbps_handle *xhp, xbps_dictionary_t pkg_repod,
 		goto out;
 	}
 	if (archive_read_open_fd(ar, pkg_fd, st.st_blksize) == ARCHIVE_FATAL) {
-		rv = archive_errno(ar);
+		rv = xbps_archive_errno(ar);
 		xbps_set_cb_state(xhp, XBPS_STATE_FILES_FAIL,
 		    rv, pkgver,
 		    "%s: failed to read binary package `%s': %s",

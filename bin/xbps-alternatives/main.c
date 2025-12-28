@@ -1,5 +1,6 @@
 /*-
  * Copyright (c) 2015 Juan Romero Pardines.
+ * Copyright (c) 2020 Duncan Overbruck <mail@duncano.de>.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -41,16 +42,22 @@ usage(bool fail)
 	fprintf(stdout,
 	    "Usage: xbps-alternatives [OPTIONS] MODE\n\n"
 	    "OPTIONS\n"
-	    " -C --config <dir>   Path to confdir (xbps.d)\n"
-	    " -d --debug          Debug mode shown to stderr\n"
-	    " -g --group <name>   Group of alternatives to match\n"
-	    " -h --help           Show usage\n"
-	    " -r --rootdir <dir>  Full path to rootdir\n"
-	    " -v --verbose        Verbose messages\n"
-	    " -V --version        Show XBPS version\n"
+	    " -C --config <dir>        Path to confdir (xbps.d)\n"
+	    " -d --debug               Debug mode shown to stderr\n"
+	    " -g --group <name>        Group of alternatives to match\n"
+	    " -h --help                Show usage\n"
+	    " -i, --ignore-conf-repos  Ignore repositories defined in xbps.d\n"
+	    " -R, --repository         Enable repository mode. This mode explicitly\n"
+	    "                          looks for packages in repositories\n"
+	    "     --repository=<url>   Enable repository mode and add repository\n"
+	    "                          to the top of the list. This option can be\n"
+	    "                          specified multiple times\n"
+	    " -r --rootdir <dir>       Full path to rootdir\n"
+	    " -v --verbose             Verbose messages\n"
+	    " -V --version             Show XBPS version\n"
 	    "MODE\n"
-	    " -l --list [PKG]     List all alternatives or from PKG\n"
-	    " -s --set PKG        Set alternatives for PKG\n");
+	    " -l --list [PKG]          List all alternatives or from PKG\n"
+	    " -s --set PKG             Set alternatives for PKG\n");
 	exit(fail ? EXIT_FAILURE : EXIT_SUCCESS);
 }
 
@@ -107,27 +114,11 @@ list_pkg_alternatives(xbps_dictionary_t pkgd, const char *group, bool print_key)
 	xbps_object_release(allkeys);
 }
 
-static int
-list_alternatives(struct xbps_handle *xhp, const char *pkgname, const char *grp)
+static void
+print_alternatives(struct xbps_handle *xhp, xbps_dictionary_t alternatives, const char *grp, bool repo_mode)
 {
-	xbps_dictionary_t alternatives, pkgd;
 	xbps_array_t allkeys;
-
-	(void)xbps_pkgdb_get_pkg(xhp, "foo");
-
-	if (pkgname) {
-		/* list alternatives for pkgname */
-		if ((pkgd = xbps_pkgdb_get_pkg(xhp, pkgname)) == NULL)
-			return ENOENT;
-
-		list_pkg_alternatives(pkgd, NULL, true);
-		return 0;
-	}
-	assert(xhp->pkgdb);
-
-	alternatives = xbps_dictionary_get(xhp->pkgdb, "_XBPS_ALTERNATIVES_");
-	if (alternatives == NULL)
-		return ENOENT;
+	xbps_dictionary_t pkgd;
 
 	allkeys = xbps_dictionary_all_keys(alternatives);
 	for (unsigned int i = 0; i < xbps_array_count(allkeys); i++) {
@@ -147,47 +138,157 @@ list_alternatives(struct xbps_handle *xhp, const char *pkgname, const char *grp)
 			const char *str = NULL;
 
 			xbps_array_get_cstring_nocopy(array, x, &str);
-			printf(" - %s%s\n", str, x == 0 ? " (current)" : "");
+			printf(" - %s%s\n", str, !repo_mode && x == 0 ? " (current)" : "");
 			pkgd = xbps_pkgdb_get_pkg(xhp, str);
+			if (pkgd == NULL && repo_mode)
+				pkgd = xbps_rpool_get_pkg(xhp, str);
 			assert(pkgd);
 			list_pkg_alternatives(pkgd, keyname, false);
 		}
 	}
 	xbps_object_release(allkeys);
+}
+
+static int
+list_alternatives(struct xbps_handle *xhp, const char *pkgname, const char *grp)
+{
+	xbps_dictionary_t alternatives, pkgd;
+
+	if (pkgname) {
+		/* list alternatives for pkgname */
+		if ((pkgd = xbps_pkgdb_get_pkg(xhp, pkgname)) == NULL)
+			return -ENOENT;
+
+		list_pkg_alternatives(pkgd, NULL, true);
+		return 0;
+	} else {
+		// XXX: initializing the pkgdb.
+		(void)xbps_pkgdb_get_pkg(xhp, "foo");
+	}
+	assert(xhp->pkgdb);
+
+	alternatives = xbps_dictionary_get(xhp->pkgdb, "_XBPS_ALTERNATIVES_");
+	if (alternatives == NULL)
+		return -ENOENT;
+
+	print_alternatives(xhp, alternatives, grp, false);
+	return 0;
+}
+
+struct search_data {
+	const char *group;
+	xbps_dictionary_t result;
+};
+
+static int
+search_array_cb(struct xbps_handle *xhp UNUSED,
+		xbps_object_t obj,
+		const char *key UNUSED,
+		void *arg,
+		bool *done UNUSED)
+{
+	xbps_object_iterator_t iter;
+	xbps_dictionary_t alternatives;
+	struct search_data *sd = arg;
+	const char *pkgver = NULL;
+
+	if (!xbps_dictionary_get_cstring_nocopy(obj, "pkgver", &pkgver))
+		return 0;
+
+	alternatives = xbps_dictionary_get(obj, "alternatives");
+	if (alternatives == NULL)
+		return 0;
+
+	iter = xbps_dictionary_iterator(alternatives);
+	assert(iter);
+
+	/*
+	 * Register all provided groups in the result dictionary.
+	 */
+	while ((obj = xbps_object_iterator_next(iter))) {
+		xbps_array_t grouparr;
+		const char *group = xbps_dictionary_keysym_cstring_nocopy(obj);
+		bool alloc = false;
+
+		/* skip the group if we search for a specific one */
+		if (sd->group != NULL && strcmp(sd->group, group) != 0)
+			continue;
+
+		grouparr = xbps_dictionary_get(sd->result, group);
+		if (grouparr == NULL) {
+			if ((grouparr = xbps_array_create()) == NULL) {
+				xbps_error_printf("Failed to create array: %s\n", strerror(errno));
+				exit(EXIT_FAILURE);
+			}
+			alloc = true;
+			xbps_dictionary_set(sd->result, group, grouparr);
+		} else {
+			/*
+			 * check if pkgver is already in the group array,
+			 * this only happens if multiple repositories provide
+			 * the same pkgver.
+			 */
+			if (xbps_match_string_in_array(grouparr, pkgver))
+				continue;
+		}
+		xbps_array_add_cstring_nocopy(grouparr, pkgver);
+
+		if (alloc)
+			xbps_object_release(grouparr);
+	}
 
 	return 0;
+}
+
+static int
+search_repo_cb(struct xbps_repo *repo, void *arg, bool *done UNUSED)
+{
+	xbps_array_t allkeys;
+	int rv;
+
+	if (repo->idx == NULL)
+		return 0;
+
+	allkeys = xbps_dictionary_all_keys(repo->idx);
+	rv = xbps_array_foreach_cb(repo->xhp, allkeys, repo->idx, search_array_cb, arg);
+	xbps_object_release(allkeys);
+	return rv;
 }
 
 int
 main(int argc, char **argv)
 {
-	const char *shortopts = "C:dg:hls:r:Vv";
+	const char *shortopts = "C:dg:hils:Rr:Vv";
 	const struct option longopts[] = {
 		{ "config", required_argument, NULL, 'C' },
 		{ "debug", no_argument, NULL, 'd' },
 		{ "group", required_argument, NULL, 'g' },
 		{ "help", no_argument, NULL, 'h' },
+		{ "ignore-conf-repos", no_argument, NULL, 'i' },
 		{ "list", no_argument, NULL, 'l' },
 		{ "set", required_argument, NULL, 's' },
+		{ "repository", optional_argument, NULL, 'R' },
 		{ "rootdir", required_argument, NULL, 'r' },
 		{ "verbose", no_argument, NULL, 'v' },
 		{ "version", no_argument, NULL, 'V' },
 		{ NULL, 0, NULL, 0 }
 	};
-	struct xbps_handle xh;
-	const char *confdir, *rootdir, *group, *pkg;
-	int c, rv, flags = 0;
-	bool list_mode = false, set_mode = false;
+	struct xbps_handle xh = { 0 };
+	const char *group, *pkg;
+	int c, rv;
+	bool list_mode = false, set_mode = false, repo_mode = false;
 
-	confdir = rootdir = group = pkg = NULL;
+	group = pkg = NULL;
+
+	xh.state_cb = state_cb;
 
 	while ((c = getopt_long(argc, argv, shortopts, longopts, NULL)) != -1) {
 		switch (c) {
 		case 'C':
-			confdir = optarg;
+			xbps_strlcpy(xh.confdir, optarg, sizeof(xh.confdir));
 			break;
 		case 'd':
-			flags |= XBPS_FLAG_DEBUG;
+			xh.flags |= XBPS_FLAG_DEBUG;
 			break;
 		case 'g':
 			group = optarg;
@@ -195,6 +296,9 @@ main(int argc, char **argv)
 		case 'h':
 			usage(false);
 			/* NOTREACHED */
+		case 'i':
+			xh.flags |= XBPS_FLAG_IGNORE_CONF_REPOS;
+			break;
 		case 'l':
 			list_mode = true;
 			break;
@@ -202,11 +306,17 @@ main(int argc, char **argv)
 			set_mode = true;
 			pkg = optarg;
 			break;
+		case 'R':
+			if (optarg != NULL) {
+				xbps_repo_store(&xh, optarg);
+			}
+			repo_mode = true;
+			break;
 		case 'r':
-			rootdir = optarg;
+			xbps_strlcpy(xh.rootdir, optarg, sizeof(xh.rootdir));
 			break;
 		case 'v':
-			flags |= XBPS_FLAG_VERBOSE;
+			xh.flags |= XBPS_FLAG_VERBOSE;
 			break;
 		case 'V':
 			printf("%s\n", XBPS_RELVER);
@@ -222,17 +332,12 @@ main(int argc, char **argv)
 
 	if (!list_mode && !set_mode)
 		usage(true);
-	else if (argc && list_mode)
-		pkg = *argv;
-
-	memset(&xh, 0, sizeof(xh));
-	xh.state_cb = state_cb;
-	if (rootdir)
-		xbps_strlcpy(xh.rootdir, rootdir, sizeof(xh.rootdir));
-	if (confdir)
-		xbps_strlcpy(xh.confdir, confdir, sizeof(xh.confdir));
-
-	xh.flags = flags;
+	else if (argc > 0 && list_mode) {
+		pkg = *argv++;
+		argc -= 1;
+		if (argc > 0)
+			usage(true);
+	}
 
 	/* initialize xbps */
 	if ((rv = xbps_init(&xh)) != 0) {
@@ -241,16 +346,49 @@ main(int argc, char **argv)
 		exit(EXIT_FAILURE);
 	}
 	if (set_mode) {
+		// XXX: xbps_pkgdb_init
+		(void)xbps_pkgdb_get_pkg(&xh, "foo");
+
 		/* in set mode pkgdb must be locked and flushed on success */
-		if ((rv = xbps_pkgdb_lock(&xh)) != 0) {
-			xbps_error_printf("failed to lock pkgdb: %s\n", strerror(rv));
+		if (xbps_pkgdb_lock(&xh) < 0) {
+			xbps_end(&xh);
 			exit(EXIT_FAILURE);
 		}
 		if ((rv = xbps_alternatives_set(&xh, pkg, group)) == 0)
 			rv = xbps_pkgdb_update(&xh, true, false);
+		else
+			xbps_error_printf("failed to update alternatives group: %s\n", strerror(rv));
 	} else if (list_mode) {
 		/* list alternative groups */
-		rv = list_alternatives(&xh, pkg, group);
+		if (repo_mode) {
+			struct search_data sd = { 0 };
+			if ((sd.result = xbps_dictionary_create()) == NULL) {
+				xbps_error_printf("Failed to create dictionary: %s\n", strerror(errno));
+				xbps_end(&xh);
+				exit(EXIT_FAILURE);
+			}
+			sd.group = group;
+			rv = xbps_rpool_foreach(&xh, search_repo_cb, &sd);
+			if (rv != 0 && rv != ENOTSUP) {
+				fprintf(stderr, "Failed to initialize rpool: %s\n",
+				    strerror(rv));
+				xbps_end(&xh);
+				exit(EXIT_FAILURE);
+			}
+			if (xbps_dictionary_count(sd.result) > 0) {
+				print_alternatives(&xh, sd.result, group, true);
+			} else {
+				xbps_error_printf("no alternatives groups found\n");
+				xbps_end(&xh);
+				exit(EXIT_FAILURE);
+			}
+		} else {
+			rv = list_alternatives(&xh, pkg, group);
+			if (rv == ENOENT) {
+				xbps_error_printf("no alternatives groups found");
+				fprintf(stderr, pkg ? " for package %s\n" : "\n", pkg);
+			}
+		}
 	}
 
 	xbps_end(&xh);

@@ -52,9 +52,46 @@
  */
 
 static int
+vpkg_map_add(xbps_dictionary_t d, const char *pkgname, const char *vpkgver, const char *provider)
+{
+	xbps_dictionary_t providers;
+	bool alloc;
+
+	providers = xbps_dictionary_get(d, pkgname);
+	if (!providers) {
+		providers = xbps_dictionary_create();
+		if (!providers)
+			return -ENOMEM;
+
+		if (!xbps_dictionary_set(d, pkgname, providers)) {
+			xbps_object_release(providers);
+			return -ENOMEM;
+		}
+		alloc = true;
+	}
+
+	if (!xbps_dictionary_set_cstring(providers, vpkgver, provider)) {
+		if (alloc)
+			xbps_object_release(providers);
+		return -ENOMEM;
+	}
+
+	if (alloc)
+		xbps_object_release(providers);
+
+	return 0;
+}
+
+static int
 store_virtualpkg(struct xbps_handle *xhp, const char *path, size_t line, char *val)
 {
+	char namebuf[XBPS_NAME_SIZE];
+	char pkgverbuf[XBPS_NAME_SIZE + sizeof("-99999_1")];
+	const char *vpkgname, *vpkgver, *provider;
 	char *p;
+	int r;
+
+
 	/*
 	 * Parse strings delimited by ':' i.e
 	 * 	<left>:<right>
@@ -66,13 +103,25 @@ store_virtualpkg(struct xbps_handle *xhp, const char *path, size_t line, char *v
 		return 0;
 	}
 	*p++ = '\0';
+	provider = p;
 
-	if (!xbps_dictionary_set_cstring(xhp->vpkgd, val, p))
-		return -errno;
-	if (!xbps_dictionary_set_cstring(xhp->vpkgd_conf, val, p))
-		return -errno;
+	if (xbps_pkg_name(namebuf, sizeof(namebuf), val)) {
+		vpkgname = namebuf;
+		vpkgver = val;
+	} else {
+		vpkgname = val;
+		snprintf(pkgverbuf, sizeof(pkgverbuf), "%s-99999_1", vpkgname);
+		vpkgver = pkgverbuf;
+	}
+
+	r = vpkg_map_add(xhp->vpkgd, vpkgname, vpkgver, provider);
+	if (r < 0)
+		return r;
+	r = vpkg_map_add(xhp->vpkgd_conf, vpkgname, vpkgver, provider);
+	if (r < 0)
+		return r;
 	xbps_dbg_printf("%s: added virtualpkg %s for %s\n", path, val, p);
-	return 1;
+	return 0;
 }
 
 static void
@@ -161,6 +210,7 @@ enum {
 	KEY_PRESERVE,
 	KEY_REPOSITORY,
 	KEY_ROOTDIR,
+	KEY_STAGING,
 	KEY_SYSLOG,
 	KEY_VIRTUALPKG,
 	KEY_KEEPCONF,
@@ -181,6 +231,7 @@ static const struct key {
 	{ "preserve",      8, KEY_PRESERVE },
 	{ "repository",   10, KEY_REPOSITORY },
 	{ "rootdir",       7, KEY_ROOTDIR },
+	{ "staging",       7, KEY_STAGING },
 	{ "syslog",        6, KEY_SYSLOG },
 	{ "virtualpkg",   10, KEY_VIRTUALPKG },
 };
@@ -277,7 +328,7 @@ parse_file(struct xbps_handle *xhp, const char *path, bool nested)
 	FILE *fp;
 	size_t len, nlines = 0;
 	ssize_t rd;
-	char *line = NULL;
+	char *linebuf = NULL;
 	int rv = 0;
 	int size, rs;
 	char *dir;
@@ -290,7 +341,8 @@ parse_file(struct xbps_handle *xhp, const char *path, bool nested)
 
 	xbps_dbg_printf("Parsing configuration file: %s\n", path);
 
-	while ((rd = getline(&line, &len, fp)) != -1) {
+	while ((rd = getline(&linebuf, &len, fp)) != -1) {
+		char *line = linebuf;
 		char *val = NULL;
 		size_t vallen;
 
@@ -340,6 +392,15 @@ parse_file(struct xbps_handle *xhp, const char *path, bool nested)
 			}
 			xbps_dbg_printf("%s: native architecture set to %s\n", path,
 			    val);
+			break;
+		case KEY_STAGING:
+			if (strcasecmp(val, "true") == 0) {
+				xhp->flags |= XBPS_FLAG_USE_STAGE;
+				xbps_dbg_printf("%s: repository stage enabled\n", path);
+			} else {
+				xhp->flags &= ~XBPS_FLAG_USE_STAGE;
+				xbps_dbg_printf("%s: repository stage disabled\n", path);
+			}
 			break;
 		case KEY_SYSLOG:
 			if (strcasecmp(val, "true") == 0) {
@@ -401,7 +462,7 @@ parse_file(struct xbps_handle *xhp, const char *path, bool nested)
 			break;
 		}
 	}
-	free(line);
+	free(linebuf);
 	fclose(fp);
 
 	return rv;

@@ -32,6 +32,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <inttypes.h>
+#include <errno.h>
 
 #include <xbps/xbps_array.h>
 #include <xbps/xbps_bool.h>
@@ -49,7 +50,7 @@
  *
  * This header documents the full API for the XBPS Library.
  */
-#define XBPS_API_VERSION	"20200423"
+#define XBPS_API_VERSION	"20250629"
 
 #ifndef XBPS_VERSION
  #define XBPS_VERSION		"UNSET"
@@ -77,7 +78,7 @@
 # define XBPS_SYSDEFCONF_PATH	"/usr/share" XBPS_SYSDIR
 #endif
 
-/** 
+/**
  * @def XBPS_META_PATH
  * Default root PATH to store metadata info.
  */
@@ -85,7 +86,7 @@
 #define XBPS_META_PATH		"var/db/xbps"
 #endif
 
-/** 
+/**
  * @def XBPS_CACHE_PATH
  * Default cache PATH to store downloaded binpkgs.
  */
@@ -109,17 +110,23 @@
  */
 #define XBPS_PKGFILES		"files.plist"
 
-/** 
- * @def XBPS_REPOIDX
+/**
+ * @def XBPS_REPODATA_INDEX
  * Filename for the repository index property list.
  */
-#define XBPS_REPOIDX		"index.plist"
+#define XBPS_REPODATA_INDEX		"index.plist"
 
 /**
- * @def XBPS_REPOIDX_META
+ * @def XBPS_REPODATA_STAGE
+ * Filename for the repository stage property list.
+ */
+#define XBPS_REPODATA_STAGE		"stage.plist"
+
+/**
+ * @def XBPS_REPODATA_META
  * Filename for the repository index metadata property list.
  */
-#define XBPS_REPOIDX_META 	"index-meta.plist"
+#define XBPS_REPODATA_META 	"index-meta.plist"
 
 /**
  * @def XBPS_FLAG_VERBOSE
@@ -239,6 +246,13 @@
 #define XBPS_FLAG_KEEP_CONFIG 		0x00010000
 
 /**
+ * @def XBPS_FLAG_USE_STAGE
+ * Use the staging repository if available.
+ * Must be set through the xbps_handle::flags member.
+ */
+#define XBPS_FLAG_USE_STAGE 		0x00020000
+
+/**
  * @def XBPS_FETCH_CACHECONN
  * Default (global) limit of cached connections used in libfetch.
  */
@@ -272,7 +286,7 @@
 extern "C" {
 #endif
 
-/** @addtogroup initend */ 
+/** @addtogroup initend */
 /**@{*/
 
 /**
@@ -315,8 +329,6 @@ extern "C" {
  * - XBPS_STATE_REPOSYNC_FAIL: syncing remote repositories has failed.
  * - XBPS_STATE_REPO_KEY_IMPORT: repository is signed and needs to import pubkey.
  * - XBPS_STATE_INVALID_DEP: package has an invalid dependency.
- * - XBPS_STATE_SHOW_INSTALL_MSG: package must show a post-install message.
- * - XBPS_STATE_SHOW_REMOVE_MSG: package must show a pre-remove message.
  * - XBPS_STATE_ALTGROUP_ADDED: package has registered an alternative group.
  * - XBPS_STATE_ALTGROUP_REMOVED: package has unregistered an alternative group.
  * - XBPS_STATE_ALTGROUP_SWITCHED: alternative group has been switched.
@@ -368,8 +380,6 @@ typedef enum xbps_state {
 	XBPS_STATE_CONFIGURE_DONE,
 	XBPS_STATE_REPO_KEY_IMPORT,
 	XBPS_STATE_INVALID_DEP,
-	XBPS_STATE_SHOW_INSTALL_MSG,
-	XBPS_STATE_SHOW_REMOVE_MSG,
 	XBPS_STATE_UNPACK_FILE_PRESERVED,
 	XBPS_STATE_PKGDB,
 	XBPS_STATE_PKGDB_DONE,
@@ -564,6 +574,10 @@ struct xbps_handle {
 	/**
 	 * @private
 	 */
+	int lock_fd;
+	/**
+	 * @private
+	 */
 	xbps_dictionary_t pkgdb_revdeps;
 	xbps_dictionary_t vpkgd;
 	xbps_dictionary_t vpkgd_conf;
@@ -634,13 +648,13 @@ struct xbps_handle {
 	 *
 	 * Full path to the xbps configuration directory.
 	 */
-	char confdir[XBPS_MAXPATH+sizeof(XBPS_SYSCONF_PATH)];
+	char confdir[XBPS_MAXPATH];
 	/**
 	 * @var confdir
 	 *
 	 * Full path to the xbps configuration directory.
 	 */
-	char sysconfdir[XBPS_MAXPATH+sizeof(XBPS_SYSDEFCONF_PATH)];
+	char sysconfdir[XBPS_MAXPATH];
 	/**
 	 * @var rootdir
 	 *
@@ -654,14 +668,14 @@ struct xbps_handle {
 	 * Cache directory to store downloaded binary packages.
 	 * If unset, defaults to \a XBPS_CACHE_PATH (relative to rootdir).
 	 */
-	char cachedir[XBPS_MAXPATH+sizeof(XBPS_CACHE_PATH)];
+	char cachedir[XBPS_MAXPATH];
 	/**
 	 * @var metadir
 	 *
 	 * Metadata directory for all operations in XBPS.
 	 * If unset, defaults to \a XBPS_CACHE_PATH (relative to rootdir).
 	 */
-	char metadir[XBPS_MAXPATH+sizeof(XBPS_META_PATH)];
+	char metadir[XBPS_MAXPATH];
 	/**
 	 * @var native_arch
 	 *
@@ -678,13 +692,6 @@ struct xbps_handle {
 	 */
 	int flags;
 };
-
-extern int xbps_debug_level;
-
-void xbps_dbg_printf(const char *, ...) __attribute__ ((format (printf, 1, 2)));
-void xbps_dbg_printf_append(const char *, ...)__attribute__ ((format (printf, 1, 2)));
-void xbps_error_printf(const char *, ...)__attribute__ ((format (printf, 1, 2)));
-void xbps_warn_printf(const char *, ...)__attribute__ ((format (printf, 1, 2)));
 
 /**
  * Initialize the XBPS library with the following steps:
@@ -706,6 +713,69 @@ int xbps_init(struct xbps_handle *xhp);
  * @param[in] xhp Pointer to an xbps_handle struct.
  */
 void xbps_end(struct xbps_handle *xhp);
+
+/**@}*/
+
+/** @addtogroup log */
+/**@{*/
+
+/**
+ * @brief The Debug level.
+ */
+extern int xbps_debug_level;
+extern int xbps_verbose_level;
+
+#if __has_attribute(format)
+# define PRINTF_LIKE(a, b) __attribute__ ((format (printf, a, b)))
+#else
+# define PRINTF_LIKE(a, b) /* printflike */
+#endif
+
+/**
+ * @brief Prints debug messages to stderr.
+ * @param[in] fmt format specifier for the message.
+ */
+void xbps_dbg_printf(const char *fmt, ...) PRINTF_LIKE(1, 2);
+
+/**
+ * @brief Prints debug messages to stderr.
+ * @param[in] fmt format specifier for the message.
+ */
+void xbps_dbg_printf_append(const char *fmt, ...) PRINTF_LIKE(1, 2);
+
+/**
+ * @brief Prints messages to stderr if verbosity is enabled.
+ * @param[in] fmt format specifier for the message.
+ */
+void xbps_verbose_printf(const char *, ...) PRINTF_LIKE(1, 2);
+
+/**
+ * @brief Prints error messages to stderr.
+ * @param[in] fmt format specifier for the message.
+ */
+void xbps_error_printf(const char *fmt, ...) PRINTF_LIKE(1, 2);
+
+/**
+ * @brief Prints warning messages to stderr.
+ * @param[in] fmt format specifier for the message.
+ */
+void xbps_warn_printf(const char *fmt, ...) PRINTF_LIKE(1, 2);
+
+/**
+ * @brief Prints formatted log message to stderr and returns error.
+ * @param[in] r errno to be returned.
+ * @param[in] fmt format specifier for the error message.
+ * @returns returns the specified error value \a r.
+ */
+int xbps_error_errno(int r, const char *fmt, ...)  PRINTF_LIKE(2, 3);
+
+/**
+ * @brief Log out of memory condition.
+ * @returns Returns `-ENOMEM`.
+ */
+#define xbps_error_oom()                                                       \
+	xbps_error_errno(ENOMEM, "%s:%d %s: out of memory\n", __FILE__,        \
+	        __LINE__, __func__)
 
 /**@}*/
 
@@ -743,11 +813,11 @@ int xbps_configure_packages(struct xbps_handle *xhp, xbps_array_t ignpkgs);
 
 /**
  * Download a file from a remote URL to current working directory.
- * 
+ *
  * @param[in] xhp Pointer to an xbps_handle struct.
  * @param[in] uri Remote URI string.
  * @param[in] flags Flags passed to libfetch's fetchXget().
- * 
+ *
  * @return -1 on error, 0 if not downloaded (because local/remote size/mtime
  * do not match) and 1 if downloaded successfully.
  **/
@@ -756,14 +826,14 @@ int xbps_fetch_file(struct xbps_handle *xhp, const char *uri,
 
 /**
  * Download and digest a file from a remote URL to current working directory.
- * 
+ *
  * @param[in] xhp Pointer to an xbps_handle struct.
  * @param[in] uri Remote URI string.
  * @param[in] flags Flags passed to libfetch's fetchXget().
  * @param[out] digest SHA256 digest buffer for the downloaded file or NULL.
  * @param[in] digestlen Size of \a digest if specified; must be at least
  * XBPS_SHA256_DIGEST_SIZE.
- * 
+ *
  * @return -1 on error, 0 if not downloaded (because local/remote size/mtime
  * do not match) and 1 if downloaded successfully.
  **/
@@ -774,12 +844,12 @@ int xbps_fetch_file_sha256(struct xbps_handle *xhp, const char *uri,
 /**
  * Download a file from a remote URL to current working directory,
  * and writing file to \a filename.
- * 
+ *
  * @param[in] xhp Pointer to an xbps_handle struct.
  * @param[in] uri Remote URI string.
  * @param[in] filename Local filename to safe the file
  * @param[in] flags Flags passed to libfetch's fetchXget().
- * 
+ *
  * @return -1 on error, 0 if not downloaded (because local/remote size/mtime
  * do not match) and 1 if downloaded successfully.
  **/
@@ -789,7 +859,7 @@ int xbps_fetch_file_dest(struct xbps_handle *xhp, const char *uri,
 /**
  * Download and digest a file from a remote URL to current working directory,
  * and writing file to \a filename.
- * 
+ *
  * @param[in] xhp Pointer to an xbps_handle struct.
  * @param[in] uri Remote URI string.
  * @param[in] filename Local filename to safe the file
@@ -797,7 +867,7 @@ int xbps_fetch_file_dest(struct xbps_handle *xhp, const char *uri,
  * @param[out] digest SHA256 digest buffer of the downloaded file or NULL.
  * @param[in] digestlen Size of \a digest if specified; must be at least
  * XBPS_SHA256_DIGEST_SIZE.
- * 
+ *
  * @return -1 on error, 0 if not downloaded (because local/remote size/mtime
  * do not match) and 1 if downloaded successfully.
  **/
@@ -1413,7 +1483,6 @@ struct xbps_repo {
 	struct {
 	        struct xbps_repo *sqe_next;  /* next element */
 	} entries;
-	struct archive *ar;
 	/**
 	 * @var xhp
 	 *
@@ -1421,11 +1490,29 @@ struct xbps_repo {
 	 */
 	struct xbps_handle *xhp;
 	/**
+	 * @var arch
+	 *
+	 * The architecture of the repository.
+	 */
+	const char *arch;
+	/**
 	 * @var idx
 	 *
 	 * Proplib dictionary associated with the repository index.
 	 */
 	xbps_dictionary_t idx;
+	/**
+	 * @var index
+	 *
+	 * Proplib dictionary associated with the repository index.
+	 */
+	xbps_dictionary_t index;
+	/**
+	 * @var idx
+	 *
+	 * Proplib dictionary associated with the repository index.
+	 */
+	xbps_dictionary_t stage;
 	/**
 	 * @var idxmeta
 	 *
@@ -1434,14 +1521,10 @@ struct xbps_repo {
 	xbps_dictionary_t idxmeta;
 	/**
 	 * @var uri
-	 * 
+	 *
 	 * URI string associated with repository.
 	 */
 	const char *uri;
-	/**
-	 * @private
-	 */
-	int fd;
 	/**
 	 * var is_remote
 	 *
@@ -1587,7 +1670,7 @@ bool xbps_repo_remove(struct xbps_handle *xhp, const char *url);
  * @return True on success and lockfd/lockfname are assigned appropiately.
  * otherwise false and lockfd/lockfname aren't set.
  */
-bool xbps_repo_lock(struct xbps_handle *xhp, const char *uri, int *lockfd, char **lockfname);
+int xbps_repo_lock(const char *repodir, const char *arch);
 
 /**
  * Unlocks a local repository and removes its lock file.
@@ -1595,7 +1678,7 @@ bool xbps_repo_lock(struct xbps_handle *xhp, const char *uri, int *lockfd, char 
  * @param[in] lockfd Lock file descriptor.
  * @param[in] lockfname Lock filename.
  */
-void xbps_repo_unlock(int lockfd, char *lockfname);
+void xbps_repo_unlock(const char *repodir, const char *arch, int fd);
 
 /**
  * Opens a repository and returns a xbps_repo object.
@@ -1606,16 +1689,6 @@ void xbps_repo_unlock(int lockfd, char *lockfname);
  * @return The matching repository object, NULL otherwise.
  */
 struct xbps_repo *xbps_repo_open(struct xbps_handle *xhp, const char *uri);
-
-/**
- * Opens a staging repository and returns a xbps_repo object.
- *
- * @param[in] xhp Pointer to the xbps_handle struct.
- * @param[in] uri Repository URI to match.
- *
- * @return The matching repository object, NULL otherwise.
- */
-struct xbps_repo *xbps_repo_stage_open(struct xbps_handle *xhp, const char *uri);
 
 /**
  * Opens a repository and returns a xbps_repo object.
@@ -1653,28 +1726,6 @@ void xbps_repo_release(struct xbps_repo *repo);
  * @return A heap allocated string that must be free(3)d when it's unneeded.
  */
 char *xbps_repo_path(struct xbps_handle *xhp, const char *url);
-
-/**
- *
- * Returns a heap-allocated string with the repository local path.
- *
- * @param[in] xhp The xbps_handle object.
- * @param[in] url The repository URL to match.
- * @param[in] name The repository name (stage or repodata)
- *
- * @return A heap allocated string that must be free(3)d when it's unneeded.
- */
-char *xbps_repo_path_with_name(struct xbps_handle *xhp, const char *url, const char *name);
-
-/**
- * Remotely fetch repository data and keep it in memory.
- *
- * @param[in] repo A struct xbps_repo pointer to be filled in.
- * @param[in] url Full url to the target remote repository data archive.
- *
- * @return True on success, false otherwise and errno is set appropiately.
- */
-bool xbps_repo_fetch_remote(struct xbps_repo *repo, const char *url);
 
 /**
  * Returns a pkg dictionary from a repository \a repo matching
@@ -1726,6 +1777,8 @@ int xbps_repo_key_import(struct xbps_repo *repo);
 /** @addtogroup archive_util */
 /**@{*/
 
+struct archive;
+
 /**
  * Appends a file to the \a ar archive by using a memory buffer \a buf of
  * size \a sizelen.
@@ -1776,7 +1829,7 @@ typedef enum pkg_state {
 /**
  * Gets package state from package \a pkgname, and sets its state
  * into \a state.
- * 
+ *
  * @param[in] xhp The pointer to an xbps_handle struct.
  * @param[in] pkgname Package name.
  * @param[out] state Package state returned.
@@ -1993,7 +2046,7 @@ bool xbps_remote_binpkg_exists(struct xbps_handle *xhp, xbps_dictionary_t pkgd);
  * Checks if the URI specified by \a uri is remote or local.
  *
  * @param[in] uri URI string.
- * 
+ *
  * @return true if URI is remote, false if local.
  */
 bool xbps_repository_is_remote(const char *uri);
@@ -2100,7 +2153,7 @@ bool xbps_pkgpattern_name(char *dst, size_t len, const char *pattern);
 
 /**
  * Gets the package version in a package string, i.e `foo-2.0`.
- * 
+ *
  * @param[in] pkg Package string.
  *
  * @return A string with the version string, NULL if it couldn't

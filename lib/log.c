@@ -25,16 +25,13 @@
  */
 
 #include <stdio.h>
-#include <errno.h>
 #include <stdarg.h>
 
-#include "xbps_api_impl.h"
-
-#ifdef __clang__
-#pragma clang diagnostic ignored "-Wformat-nonliteral"
-#endif
+#include "xbps/macro.h"
+#include "xbps.h"
 
 int xbps_debug_level = 0;
+int xbps_verbose_level = 0;
 
 /**
  * @file lib/log.c
@@ -44,7 +41,7 @@ int xbps_debug_level = 0;
  * Use these functions to log errors, warnings and debug messages.
  */
 
-static void
+static void PRINTF_LIKE(3, 0)
 common_printf(FILE *f, const char *msg, const char *fmt, va_list ap)
 {
 	if (msg != NULL)
@@ -80,6 +77,19 @@ xbps_dbg_printf(const char *fmt, ...)
 }
 
 void
+xbps_verbose_printf(const char *fmt, ...)
+{
+	va_list ap;
+
+	if (xbps_verbose_level == 0)
+		return;
+
+	va_start(ap, fmt);
+	common_printf(stderr, NULL, fmt, ap);
+	va_end(ap);
+}
+
+void
 xbps_error_printf(const char *fmt, ...)
 {
 	va_list ap;
@@ -97,4 +107,16 @@ xbps_warn_printf(const char *fmt, ...)
 	va_start(ap, fmt);
 	common_printf(stderr, "WARNING: ", fmt, ap);
 	va_end(ap);
+}
+
+int
+xbps_error_errno(int r, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	common_printf(stderr, "ERROR: ", fmt, ap);
+	va_end(ap);
+
+	return -ABS(r);
 }

@@ -2,9 +2,9 @@
 
 RANLIB ?= ranlib
 
-LIBXBPS_MAJOR = 5
+LIBXBPS_MAJOR = 6
 LIBXBPS_MINOR = 0
-LIBXBPS_MICRO = 1
+LIBXBPS_MICRO = 0
 LIBXBPS_SHLIB = libxbps.so.$(LIBXBPS_MAJOR).$(LIBXBPS_MINOR).$(LIBXBPS_MICRO)
 LDFLAGS += $(LIBXBPS_LDFLAGS) -shared -Wl,-soname,libxbps.so.$(LIBXBPS_MAJOR)
 
@@ -36,7 +36,7 @@ EXTOBJS = external/dewey.o external/fexec.o external/mkpath.o
 
 # libxbps
 OBJS = package_configure.o package_config_files.o package_orphans.o
-OBJS += package_remove.o package_state.o package_msg.o
+OBJS += package_remove.o package_state.o
 OBJS += package_unpack.o package_register.o package_script.o verifysig.o
 OBJS += transaction_commit.o transaction_prepare.o
 OBJS += transaction_ops.o transaction_store.o transaction_check_replaces.o
