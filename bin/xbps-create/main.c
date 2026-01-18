@@ -405,6 +405,8 @@ ftw_cb(const char *fpath, const struct stat *sb, const struct dirent *dir UNUSED
 	xe->file = strdup(fpath);
 	assert(xe->file);
 
+//  /* INSTALL/REMOVE metadata scripts */
+
 	if ((strcmp(fpath, "./INSTALL") == 0) ||
 	    (strcmp(fpath, "./REMOVE") == 0)) {
 		/* metadata file */
@@ -412,6 +414,22 @@ ftw_cb(const char *fpath, const struct stat *sb, const struct dirent *dir UNUSED
 		xe->type = ENTRY_TYPE_METADATA;
 		goto out;
 	}
+
+//  /* INSTALL/REMOVE metadata scripts */
+//  if ((strcmp(fpath, "./INSTALL") == 0) ||
+//      (strcmp(fpath, "./REMOVE") == 0) ||
+//      (strncmp(fpath, "./var/lib/xbps/scripts/", 23) == 0 &&
+//       strcmp(strrchr(fpath, '/'), "/INSTALL") == 0)) {
+//
+//    xbps_dictionary_set_cstring_nocopy(fileinfo, "type", "metadata");
+//    xe->type = ENTRY_TYPE_METADATA;
+//
+//    /* normalize path: must be ./INSTALL */
+//    free(xe->file);
+//    xe->file = strdup("./INSTALL");
+//
+//    goto out;
+//  }
 
 	if (S_ISLNK(sb->st_mode)) {
 		char buf[PATH_MAX];
@@ -1110,18 +1128,15 @@ main(int argc, char **argv)
 
 	process_destdir(mutable_files);
 
-	/* Auto-detect INSTALL script */
-/*  if (access("./INSTALL", R_OK) == 0)
-    xbps_dictionary_set_bool(pkg_propsd, "install-script", true);
-*/
+//  /* Auto-detect INSTALL script */
+//  if (access("./INSTALL", R_OK) == 0)
+//    xbps_dictionary_set_bool(pkg_propsd, "install-script", true);
 
   /* Auto-detect INSTALL script */
   {
     char ipath[PATH_MAX];
-
     snprintf(ipath, sizeof(ipath),
       "./var/lib/xbps/scripts/%s/INSTALL", pkgver);
-
     if (access(ipath, R_OK) == 0)
       xbps_dictionary_set_bool(pkg_propsd, "install-script", true);
   }

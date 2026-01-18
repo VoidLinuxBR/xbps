@@ -28,5 +28,5 @@
 
 /* From clean-cache.c */
 int	clean_cachedir(struct xbps_handle *, bool uninstalled, bool drun);
-
+int clean_cachedir_all(struct xbps_handle *, bool drun);
 #endif /* !_XBPS_REMOVE_DEFS_H_ */

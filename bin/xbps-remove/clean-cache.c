@@ -183,3 +183,37 @@ clean_cachedir(struct xbps_handle *xhp, bool uninstalled, bool drun)
 	}
 	return rv;
 }
+
+int
+clean_cachedir_all(struct xbps_handle *xhp, bool drun)
+{
+    DIR *dirp;
+    struct dirent *dp;
+    char buf[PATH_MAX];
+
+    if (chdir(xhp->cachedir) == -1)
+        return -1;
+
+    dirp = opendir(xhp->cachedir);
+    if (dirp == NULL)
+        return 0;
+
+    while ((dp = readdir(dirp)) != NULL) {
+        if (strcmp(dp->d_name, ".") == 0 ||
+            strcmp(dp->d_name, "..") == 0)
+            continue;
+
+        snprintf(buf, sizeof(buf), "%s/%s", xhp->cachedir, dp->d_name);
+
+        if (!drun && unlink(buf) == -1) {
+            xbps_error_printf("Failed to remove `%s': %s\n",
+                buf, strerror(errno));
+        } else {
+            printf("Removed %s from cachedir\n", dp->d_name);
+        }
+    }
+
+    closedir(dirp);
+    return 0;
+}
+
