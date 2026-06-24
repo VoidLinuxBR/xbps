@@ -1,0 +1,96 @@
+# Common vars used by XBPS on linux.
+XBPS_OS = linux
+VERSION = 0.60
+TOPDIR ?=	..
+PREFIX ?=	/usr/local
+EPREFIX ?= /usr/local
+SBINDIR ?= /usr/local/bin
+INCLUDEDIR ?=	/usr/local/include
+LIBDIR ?=	/usr/local/lib
+MANDIR ?=	/usr/local/share/man
+SHAREDIR ?= /usr/local/share
+PKGCONFIGDIR ?= /usr/local/lib/pkgconfig
+TESTSDIR ?= /usr/local/tests
+DBDIR ?= /var/db/xbps
+ETCDIR ?= /usr/local/etc/xbps.d
+CC =	gcc
+CFLAGS =	-O2
+LDFLAGS =  	-L$(TOPDIR)/lib
+CPPFLAGS = 	-D_DEFAULT_SOURCE -D_GNU_SOURCE -I. -I$(TOPDIR) -I$(TOPDIR)/include
+CPPFLAGS +=	-DXBPS_SYSCONF_PATH=\"/usr/local/etc/xbps.d\"
+CPPFLAGS +=	-DXBPS_SYSDEFCONF_PATH=\"/usr/local/share/xbps.d\"
+CPPFLAGS +=	-DXBPS_VERSION=\"0.60\"
+CPPFLAGS +=	-DXBPS_META_PATH=\"/var/db/xbps\"
+CPPFLAGS +=	-DUNUSED="__attribute__((__unused__))"
+CPPFLAGS += -DXBPS_GIT=\"29007171\"
+CPPFLAGS += -DDEBUG
+CFLAGS +=	-g
+LIBXBPS_LDFLAGS += -g
+CPPFLAGS += 	-D_XOPEN_SOURCE=700
+CPPFLAGS += 	-D_FILE_OFFSET_BITS=64
+LDFLAGS +=	-Wl,--no-as-needed
+CFLAGS +=	-Wall
+CFLAGS +=	-Wextra
+CFLAGS +=	-Werror
+CFLAGS +=	-Wshadow
+CFLAGS +=	-Wformat=2
+CFLAGS +=	-Wmissing-prototypes
+CFLAGS +=	-Wmissing-declarations
+CFLAGS +=	-Wnested-externs
+CFLAGS +=	-Wvla
+CFLAGS +=	-Woverlength-strings
+CFLAGS +=	-Wunsafe-loop-optimizations
+CFLAGS +=	-Wundef
+CFLAGS +=	-Wsign-compare
+CFLAGS +=	-Wmissing-include-dirs
+CFLAGS +=	-Wold-style-definition
+CFLAGS +=	-Winit-self
+CFLAGS +=	-Wredundant-decls
+CFLAGS +=	-Wfloat-equal
+CFLAGS +=	-Wmissing-noreturn
+CFLAGS +=	-Wcast-align
+CFLAGS +=	-Wcast-qual
+CFLAGS +=	-Wpointer-arith
+CFLAGS +=	-Wcomment
+CFLAGS +=	-Wdeclaration-after-statement
+CFLAGS +=	-Wwrite-strings
+CFLAGS +=	-Wstack-protector
+CFLAGS +=	-fPIC
+CFLAGS +=	-finline-functions
+CFLAGS +=	-fstack-protector-strong
+SHAREDLIB_CFLAGS +=	-fvisibility=default
+CPPFLAGS +=	-DHAVE_VISIBILITY=1
+HAVE_VISIBILITY = 1
+LIBXBPS_LDFLAGS +=	-Wl,--export-dynamic
+LDFLAGS +=	-Wl,-z,relro,-z,now
+PROG_CFLAGS +=	-fPIE
+PROG_LDFLAGS +=	-pie
+CFLAGS +=	-std=c99
+CFLAGS += -Wno-error=deprecated-declarations
+CPPFLAGS +=	-I$(TOPDIR)/lib/fetch
+LDFLAGS +=	-lssl
+STATIC_LIBS =	$(TOPDIR)/lib/libxbps.a
+CPPFLAGS +=       -I$(TOPDIR)/lib/portableproplib
+CPPFLAGS +=       -I$(TOPDIR)/lib/portableproplib/prop
+CFLAGS +=		-pthread
+CPPFLAGS +=	-DHAVE_ATOMICS
+CPPFLAGS +=	-DHAVE_VASPRINTF
+CPPFLAGS +=	-DHAVE_STRCASESTR
+CPPFLAGS +=	-DHAVE_STRLCPY
+CPPFLAGS +=	-DHAVE_STRLCAT
+COMPAT_OBJS+=	compat/humanize_number.o
+LIBPROP_OBJS += portableproplib/rb.o
+CPPFLAGS += -DHAVE_FDATASYNC
+CPPFLAGS	+= -DHAVE_CLOCK_GETTIME
+LDFLAGS += -lrt
+STATIC_LIBS += -lrt
+CFLAGS += 
+LDFLAGS +=        -larchive
+STATIC_LIBS +=    -larchive -lcrypto -lacl -lzstd -llz4 -lbz2 -pthread -lz -llzma -lcrypto -ldl -pthread
+CFLAGS += 
+LDFLAGS +=        -lssl
+STATIC_LIBS +=    -lssl -lcrypto -ldl -pthread
+CFLAGS += 
+LDFLAGS +=        -lz
+STATIC_LIBS +=    -lz
+SILENT = @
